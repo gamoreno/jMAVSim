@@ -15,8 +15,7 @@ import javax.vecmath.Matrix3d;
 import javax.vecmath.Vector3d;
 import javax.xml.parsers.ParserConfigurationException;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.lang.Math;
 import java.net.URL;
 import java.util.Arrays;
@@ -59,6 +58,7 @@ public class Simulator implements Runnable {
     public static final String DEFAULT_VEHICLE_MODEL = "models/3dr_arducopter_quad_x.obj";
     public static final String DEFAULT_GIMBAL_MODEL =
         "models/gimbal.png";  // blank for invisible gimbal
+    public static final int DEFAULT_LOG_HZ = 20;
 
     // Set global reference point
     // Zurich Irchel Park: 47.397742, 8.545594, 488m
@@ -101,6 +101,10 @@ public class Simulator implements Runnable {
     private static int qgcPeerPort = DEFAULT_QGC_PEER_PORT;
     private static String serialPath = DEFAULT_SERIAL_PATH;
     private static int serialBaudRate = DEFAULT_SERIAL_BAUD_RATE;
+    private static String logFile = null;
+    private static long logInterval = -1; //don't log by default
+    private long nextLog = 0;
+    private BufferedWriter logFileWriter = null;
 
     private static HashSet<Integer> monitorMessageIds = new HashSet<Integer>();
     private static boolean monitorMessage = false;
@@ -288,6 +292,17 @@ public class Simulator implements Runnable {
             }
         }
 
+        // create log file if needed
+        if (logFile != null) {
+            try {
+                File file = new File(logFile);
+                FileWriter fw = new FileWriter(file, false);
+                logFileWriter = new BufferedWriter(fw);
+            } catch(IOException e) {
+                System.out.println("ERROR: failed to create log file: " + e.getLocalizedMessage());
+            }
+        }
+
         thisHandle = executor.scheduleAtFixedRate(this, 0, sleepInterval, TimeUnit.MICROSECONDS);
 
         Runtime.getRuntime().addShutdownHook(new Thread() {
@@ -312,6 +327,11 @@ public class Simulator implements Runnable {
                     if (thisHandle != null) {
                         thisHandle.cancel(true);
                     }
+
+                    if (logFileWriter != null) {
+                        logFileWriter.close();
+                    }
+
                     executor.shutdown();
 
                 } catch (InterruptedException | IOException e) {
@@ -401,7 +421,27 @@ public class Simulator implements Runnable {
 
     public void run() {
         try {
-            world.update(System.currentTimeMillis());
+            long t = System.currentTimeMillis();
+            world.update(t);
+            if (logFileWriter != null && logInterval != -1 && nextLog <= t) {
+                StringBuilder entry = new StringBuilder();
+                entry.append(t);
+                entry.append(',');
+                entry.append(vehicle.position.x);
+                entry.append(',');
+                entry.append(vehicle.position.y);
+                entry.append(',');
+                entry.append(vehicle.position.z);
+                entry.append(',');
+                entry.append(vehicle.attitude.x); // roll rad
+                entry.append(',');
+                entry.append(vehicle.attitude.y); // pitch rad
+                entry.append(',');
+                entry.append(vehicle.attitude.z); // yaw rad
+                entry.append('\n');
+                logFileWriter.write(entry.toString());
+                nextLog = t + logInterval;
+            }
         } catch (Exception e) {
             System.err.println("Exception in Simulator.world.update() : ");
             e.printStackTrace();
@@ -480,13 +520,15 @@ public class Simulator implements Runnable {
     public final static String GUI_VIEW_STRING = "-view (fpv|grnd|gmbl)";
     public final static String AP_STRING = "-ap <autopilot_type>";
     public final static String SPEED_STRING = "-r <Hz>";
+    public final static String LOG_STRING = "-l <file>";
     public final static String CMD_STRING =
         "java [-Xmx512m] -cp lib/*:out/production/jmavsim.jar me.drton.jmavsim.Simulator";
     public final static String CMD_STRING_JAR = "java [-Xmx512m] -jar jmavsim_run.jar";
     public final static String USAGE_STRING = CMD_STRING_JAR + " [-h] [" + UDP_STRING + " | " +
                                               SERIAL_STRING + "] [" + SPEED_STRING + "] [" + AP_STRING + "] [" + MAG_STRING + "] " +
                                               "[" + QGC_STRING + "] [" + GIMBAL_STRING + "] [" + GUI_AA_STRING + "] [" + GUI_MAX_STRING + "] [" +
-                                              GUI_VIEW_STRING + "] [" + REP_STRING + "] [" + PRINT_INDICATION_STRING + "]";
+                                              GUI_VIEW_STRING + "] [" + REP_STRING + "] [" + PRINT_INDICATION_STRING +
+                                                "] [" + LOG_STRING + "]";
 
     public static void main(String[] args)
     throws InterruptedException, IOException {
@@ -627,6 +669,14 @@ public class Simulator implements Runnable {
                     sleepInterval = (int)1e6 / t;
                 } else {
                     System.err.println("-r requires Hz as an argument.");
+                    return;
+                }
+            } else if(arg.equals("-l")) {
+                if (i < args.length) {
+                    logFile = args[i++];
+                    logInterval = 1000 / DEFAULT_LOG_HZ;
+                } else {
+                    System.err.println("-l requires a log file name as an argument.");
                     return;
                 }
             } else if (arg.equals("-view")) {
