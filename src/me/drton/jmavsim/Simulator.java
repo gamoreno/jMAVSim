@@ -438,6 +438,12 @@ public class Simulator implements Runnable {
                 entry.append(vehicle.attitude.y); // pitch rad
                 entry.append(',');
                 entry.append(vehicle.attitude.z); // yaw rad
+                entry.append(',');
+                entry.append(vehicle.attitude_target[0]); // roll rad
+                entry.append(',');
+                entry.append(vehicle.attitude_target[1]); // pitch rad
+                entry.append(',');
+                entry.append(vehicle.attitude_target[2]); // yaw rad
                 entry.append('\n');
                 logFileWriter.write(entry.toString());
                 nextLog = t + logInterval;

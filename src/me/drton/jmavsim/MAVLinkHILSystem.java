@@ -119,6 +119,13 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
             }
         } else if ("STATUSTEXT".equals(msg.getMsgName())) {
             System.out.println("MSG: " + msg.getString("text"));
+        } else if ("ATTITUDE_TARGET".equals(msg.getMsgName())) {
+            Object[] q = (Object[]) msg.get("q");
+            double[] q2 = new double[q.length];
+            for (int i = 0; i < q.length; i++) {
+                q2[i] = (Float) q[i];
+            }
+            vehicle.attitude_target = RotationConversion.eulerAnglesByQuaternion(q2);
         }
     }
 
