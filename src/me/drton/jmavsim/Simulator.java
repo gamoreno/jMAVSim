@@ -272,6 +272,15 @@ public class Simulator implements Runnable {
         visualizer.setZoomMode(GUI_START_ZOOM);
         visualizer.toggleReportPanel(GUI_SHOW_REPORT_PANEL);
 
+        // create controller
+        Controller controller = new Controller(world, vehicle);
+        controller.loadK("controller.txt");
+        controller.printK();
+        world.addObject(controller);
+
+        PositionControl posControl = new PositionControl(world, controller);
+        world.addObject(posControl);
+
         // Open ports
         try {
             autopilotMavLinkPort.open();
