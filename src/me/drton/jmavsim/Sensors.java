@@ -25,6 +25,8 @@ public interface Sensors {
     LatLonAlt getGlobalPosition();
 
     boolean isGPSUpdated();
+    
+    boolean isVisionUpdated();
 
     boolean isReset();
 

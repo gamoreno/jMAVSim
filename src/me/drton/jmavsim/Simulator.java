@@ -240,8 +240,10 @@ public class Simulator implements Runnable {
         }
 
         // Create vehicle with sensors
-        if (autopilotType == "aq") {
+        if (autopilotType.equals("aq")) {
             vehicle = buildAQ_leora();
+        } else if (autopilotType.equals("vision")) {
+            vehicle = buildVisionMulticopter();
         } else {
             vehicle = buildMulticopter();
         }
@@ -347,6 +349,29 @@ public class Simulator implements Runnable {
         sensors.setGPSInterval(50);
         sensors.setGPSDelay(200);
         sensors.setGPSStartTime(System.currentTimeMillis() + 300);
+        sensors.setNoise_Acc(0.05f);
+        sensors.setNoise_Gyo(0.01f);
+        sensors.setNoise_Mag(0.005f);
+        sensors.setNoise_Prs(0.1f);
+        vehicle.setSensors(sensors);
+        //v.setDragRotate(0.1);
+
+        return vehicle;
+    }
+
+    private AbstractMulticopter buildVisionMulticopter() {
+        Vector3d gc = new Vector3d(0.0, 0.0, 0.0);  // gravity center
+        AbstractMulticopter vehicle = new Quadcopter(world, DEFAULT_VEHICLE_MODEL, "x", "default",
+                                                     0.33 / 2, 4.0, 0.05, 0.005, gc);
+        Matrix3d I = new Matrix3d();
+        // Moments of inertia
+        I.m00 = 0.005;  // X
+        I.m11 = 0.005;  // Y
+        I.m22 = 0.009;  // Z
+        vehicle.setMomentOfInertia(I);
+        vehicle.setMass(0.8);
+        vehicle.setDragMove(0.01);
+        VisionSensors sensors = new VisionSensors();
         sensors.setNoise_Acc(0.05f);
         sensors.setNoise_Gyo(0.01f);
         sensors.setNoise_Mag(0.005f);

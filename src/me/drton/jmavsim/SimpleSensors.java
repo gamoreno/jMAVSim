@@ -301,5 +301,10 @@ public class SimpleSensors implements Sensors {
                             vIn.y + randomNoise(stdDev),
                             vIn.z + randomNoise(stdDev));
     }
+    
+    @Override
+    public boolean isVisionUpdated() {
+    	return false;
+    }
 
 }

@@ -248,6 +248,19 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
                 sendMessage(msg_gps);
             }
         }
+        
+        // Vision
+        if (sensors.isVisionUpdated()) {
+            MAVLinkMessage msg_vision = new MAVLinkMessage(schema, "VISION_POSITION_ESTIMATE", sysId, componentId, protocolVersion);
+            msg_vision.set("usec", tu);
+            msg_vision.set("x", vehicle.position.x);
+            msg_vision.set("y", vehicle.position.y);
+            msg_vision.set("z", vehicle.position.z);
+            msg_vision.set("roll", vehicle.attitude.x);
+            msg_vision.set("pitch", vehicle.attitude.y);
+            msg_vision.set("yaw", vehicle.attitude.x);
+            sendMessage(msg_vision);
+        }
 
         // SYSTEM TIME from host
         if (timeThrottleCounter++ % 1000 == 0) {
