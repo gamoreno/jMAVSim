@@ -37,7 +37,6 @@ public class Simulator implements Runnable {
         UDP,
         TCP
     }
-    private static Port PORT = Port.UDP;
 
     public static boolean   COMMUNICATE_WITH_QGC  = true;   // open UDP port to QGC
     public static boolean   DO_MAG_FIELD_LOOKUP   =
@@ -102,12 +101,18 @@ public class Simulator implements Runnable {
     private static double speedFactor = DEFAULT_SPEED_FACTOR;
     private static int autopilotSysId = DEFAULT_AUTOPILOT_SYSID;
     private static String autopilotType = DEFAULT_AUTOPILOT_TYPE;
-    private static String autopilotIpAddress = LOCAL_HOST;
-    private static int autopilotPort = DEFAULT_AUTOPILOT_PORT;
     private static String qgcIpAddress = LOCAL_HOST;
     private static int qgcPeerPort = DEFAULT_QGC_PEER_PORT;
-    private static String serialPath = DEFAULT_SERIAL_PATH;
-    private static int serialBaudRate = DEFAULT_SERIAL_BAUD_RATE;
+
+    private static class PortParams {
+        public Port PORT = Port.UDP;
+        public String autopilotIpAddress = LOCAL_HOST;
+        public int autopilotPort = DEFAULT_AUTOPILOT_PORT;
+        public String serialPath = DEFAULT_SERIAL_PATH;
+        public int serialBaudRate = DEFAULT_SERIAL_BAUD_RATE;
+    }
+
+    private static PortParams portParams = new PortParams();
 
     private static HashSet<Integer> monitorMessageIds = new HashSet<Integer>();
     private static boolean monitorMessage = false;
@@ -199,30 +204,8 @@ public class Simulator implements Runnable {
         }
         world.addObject(connCommon);
 
-        // Create ports
-        if (PORT == Port.SERIAL) {
-            SerialMAVLinkPort port = new SerialMAVLinkPort(schema);
-            port.setup(serialPath, serialBaudRate, 8, 1, 0);
-            port.setDebug(DEBUG_MODE);
-            autopilotMavLinkPort = port;
-
-        } else if (PORT == Port.TCP) {
-            TCPMavLinkPort port = new TCPMavLinkPort(schema);
-            port.setDebug(DEBUG_MODE);
-            port.setup(autopilotIpAddress, autopilotPort);
-            if (monitorMessage) {
-                port.setMonitorMessageID(monitorMessageIds);
-            }
-            autopilotMavLinkPort = port;
-        } else {
-            UDPMavLinkPort port = new UDPMavLinkPort(schema);
-            port.setDebug(DEBUG_MODE);
-            port.setup(autopilotIpAddress, autopilotPort);
-            if (monitorMessage) {
-                port.setMonitorMessageID(monitorMessageIds);
-            }
-            autopilotMavLinkPort = port;
-        }
+        // Create port
+        autopilotMavLinkPort = createPort(portParams, schema);
 
         // allow HIL and GCS to talk to this port
         connHIL.addNode(autopilotMavLinkPort);
@@ -233,7 +216,7 @@ public class Simulator implements Runnable {
         if (COMMUNICATE_WITH_QGC) {
             udpGCMavLinkPort.setup(qgcIpAddress, qgcPeerPort);
             udpGCMavLinkPort.setDebug(DEBUG_MODE);
-            if (monitorMessage && PORT == Port.SERIAL) {
+            if (monitorMessage && portParams.PORT == Port.SERIAL) {
                 udpGCMavLinkPort.setMonitorMessageID(monitorMessageIds);
             }
             connCommon.addNode(udpGCMavLinkPort);
@@ -354,6 +337,34 @@ public class Simulator implements Runnable {
 
     }
 
+    private MAVLinkPort createPort(PortParams params, MAVLinkSchema schema) throws IOException {
+        MAVLinkPort mavLinkPort = null;
+        if (params.PORT == Port.SERIAL) {
+            SerialMAVLinkPort port = new SerialMAVLinkPort(schema);
+            port.setup(params.serialPath, params.serialBaudRate, 8, 1, 0);
+            port.setDebug(DEBUG_MODE);
+            mavLinkPort = port;
+
+        } else if (params.PORT == Port.TCP) {
+            TCPMavLinkPort port = new TCPMavLinkPort(schema);
+            port.setDebug(DEBUG_MODE);
+            port.setup(params.autopilotIpAddress, params.autopilotPort);
+            if (monitorMessage) {
+                port.setMonitorMessageID(monitorMessageIds);
+            }
+            mavLinkPort = port;
+        } else {
+            UDPMavLinkPort port = new UDPMavLinkPort(schema);
+            port.setDebug(DEBUG_MODE);
+            port.setup(params.autopilotIpAddress, params.autopilotPort);
+            if (monitorMessage) {
+                port.setMonitorMessageID(monitorMessageIds);
+            }
+            mavLinkPort = port;
+        }
+        return mavLinkPort;
+    }
+
     public void pauseToggle() {
         paused = !paused;
     }
@@ -424,7 +435,16 @@ public class Simulator implements Runnable {
         return g;
     }
 
+
+    private static long lastTupdate = 0;
+
     public void run() {
+        long tnow = System.currentTimeMillis();
+        if (tnow - lastTupdate > 5000) {
+            lastTupdate = tnow;
+            System.out.println("SimTime: " + (getSimMillis() / 1000) + "\nSysTime: " + (tnow / 1000));
+        }
+
         if (paused) {
             return;
         }
@@ -524,6 +544,7 @@ public class Simulator implements Runnable {
     }
 
     public void advanceTime() {
+        // TODO prevent simTime from advancing faster than it should
         simTimeUs += sleepInterval;
     }
 
@@ -596,7 +617,7 @@ public class Simulator implements Runnable {
                     continue;
                 }
             } else if (arg.equalsIgnoreCase("-udp")) {
-                PORT = Port.UDP;
+                portParams.PORT = Port.UDP;
                 if (i == args.length) {
                     // only arg is -udp, so use default values.
                     break;
@@ -615,8 +636,8 @@ public class Simulator implements Runnable {
                             System.err.println("Expected: " + UDP_STRING + ", got: " + Arrays.toString(list));
                             return;
                         }
-                        autopilotIpAddress = list[0];
-                        autopilotPort = Integer.parseInt(list[1]);
+                        portParams.autopilotIpAddress = list[0];
+                        portParams.autopilotPort = Integer.parseInt(list[1]);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + USAGE_STRING + ", got: " + e.toString());
                         return;
@@ -626,7 +647,7 @@ public class Simulator implements Runnable {
                     return;
                 }
             } else if (arg.equalsIgnoreCase("-tcp")) {
-                PORT = Port.TCP;
+                portParams.PORT = Port.TCP;
                 if (i == args.length) {
                     // only arg is -tcp, so use default values.
                     break;
@@ -645,8 +666,8 @@ public class Simulator implements Runnable {
                             System.err.println("Expected: " + TCP_STRING + ", got: " + Arrays.toString(list));
                             return;
                         }
-                        autopilotIpAddress = list[0];
-                        autopilotPort = Integer.parseInt(list[1]);
+                        portParams.autopilotIpAddress = list[0];
+                        portParams.autopilotPort = Integer.parseInt(list[1]);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + USAGE_STRING + ", got: " + e.toString());
                         return;
@@ -656,7 +677,7 @@ public class Simulator implements Runnable {
                     return;
                 }
             } else if (arg.equals("-serial")) {
-                PORT = Port.SERIAL;
+                portParams.PORT = Port.SERIAL;
                 if (i >= args.length) {
                     // only arg is -serial, so use default values
                     break;
@@ -668,8 +689,8 @@ public class Simulator implements Runnable {
                 }
                 if ((i + 1) <= args.length) {
                     try {
-                        serialPath = nextArg;
-                        serialBaudRate = Integer.parseInt(args[i++]);
+                        portParams.serialPath = nextArg;
+                        portParams.serialBaudRate = Integer.parseInt(args[i++]);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + USAGE_STRING + ", got: " + e.toString());
                         return;
@@ -800,11 +821,11 @@ public class Simulator implements Runnable {
         System.out.println("\nUsage: " + USAGE_STRING + "\n");
         System.out.println("Command-line options:\n");
         System.out.println(UDP_STRING);
-        System.out.println("      Open a TCP/IP UDP connection to the MAV (default: " + autopilotIpAddress +
-                           ":" + autopilotPort + ").");
+        System.out.println("      Open a TCP/IP UDP connection to the MAV (default: " + portParams.autopilotIpAddress +
+                           ":" + portParams.autopilotPort + ").");
         System.out.println(SERIAL_STRING);
         System.out.println("      Open a serial connection to the MAV instead of UDP.");
-        System.out.println("      Default path/baud is: " + serialPath + " " + serialBaudRate + "");
+        System.out.println("      Default path/baud is: " + portParams.serialPath + " " + portParams.serialBaudRate + "");
         System.out.println(RATE_STRING);
         System.out.println("      Refresh rate at which jMAVSim runs. This dictates the frequency");
         System.out.println("      of the HIL_SENSOR messages. Default is " + DEFAULT_SIM_RATE + " Hz");
