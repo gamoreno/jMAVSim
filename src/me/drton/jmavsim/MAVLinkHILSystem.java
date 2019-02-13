@@ -53,7 +53,6 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
     @Override
     public void handleMessage(MAVLinkMessage msg) {
         super.handleMessage(msg);
-        long t = simulator.getSimMillis();
         if ("HIL_ACTUATOR_CONTROLS".equals(msg.getMsgName())) {
             gotHilActuatorControls = true;
             List<Double> control = new ArrayList<Double>();
