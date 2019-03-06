@@ -28,6 +28,7 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
     private long nextHilStatePub = 0;
     private long timeThrottleCounter = 0;
     private long lastHeartbeatMs = 0;
+    private boolean driveSimTime = false;
 
     /**
      * Create MAVLinkHILSimulator, MAVLink system that sends simulated sensors to autopilot and passes controls from
@@ -36,10 +37,12 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
      * @param sysId       SysId of simulator should be the same as autopilot
      * @param componentId ComponentId of simulator should be different from autopilot
      * @param vehicle     vehicle to connect
+     * @param driveSimTime  if true, this instance will drive the progress of the simulation time
      */
-    public MAVLinkHILSystem(MAVLinkSchema schema, int sysId, int componentId, AbstractVehicle vehicle) {
+    public MAVLinkHILSystem(MAVLinkSchema schema, int sysId, int componentId, AbstractVehicle vehicle, boolean driveSimTime) {
         super(schema, sysId, componentId);
         this.vehicle = vehicle;
+        this.driveSimTime = driveSimTime;
     }
 
     public void setSimulator(Simulator simulator) {
@@ -73,7 +76,9 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
                 }
             }
 
-            simulator.advanceTime();
+            if (driveSimTime) {
+                simulator.advanceTime();
+            }
 
             vehicle.setControl(control);
 
@@ -126,7 +131,7 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
                         sysId = msg.systemID;
                     }
 
-                    System.out.println("Init MAVLink");
+                    System.out.println("Init MAVLink SysID = " + sysId + " on " + toString());
                     initMavLink();
 
                 } else if (sysId > -1 && sysId != msg.systemID) {

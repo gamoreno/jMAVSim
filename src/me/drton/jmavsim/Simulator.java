@@ -22,6 +22,7 @@ import java.net.URL;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Scanner;
+import java.util.Vector;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
@@ -100,19 +101,34 @@ public class Simulator implements Runnable {
     private static int sleepInterval = (int)1e6 / DEFAULT_SIM_RATE;  // Main loop interval, in us
     private static double speedFactor = DEFAULT_SPEED_FACTOR;
     private static int autopilotSysId = DEFAULT_AUTOPILOT_SYSID;
-    private static String autopilotType = DEFAULT_AUTOPILOT_TYPE;
     private static String qgcIpAddress = LOCAL_HOST;
     private static int qgcPeerPort = DEFAULT_QGC_PEER_PORT;
 
-    private static class PortParams {
+    private static class VehicleConfig {
         public Port PORT = Port.UDP;
         public String autopilotIpAddress = LOCAL_HOST;
         public int autopilotPort = DEFAULT_AUTOPILOT_PORT;
         public String serialPath = DEFAULT_SERIAL_PATH;
         public int serialBaudRate = DEFAULT_SERIAL_BAUD_RATE;
+        public String autopilotType = DEFAULT_AUTOPILOT_TYPE;
+        public String vehicle3DModel = DEFAULT_VEHICLE_MODEL;
+        public Vector3d initialPosition = new Vector3d();
+
+        public VehicleConfig() { }
+
+        public VehicleConfig(VehicleConfig other) {
+            PORT = other.PORT;
+            autopilotIpAddress = other.autopilotIpAddress;
+            autopilotPort = other.autopilotPort;
+            serialPath = other.serialPath;
+            serialBaudRate = other.serialBaudRate;
+            autopilotType = other.autopilotType;
+            vehicle3DModel = other.vehicle3DModel;
+        }
+
     }
 
-    private static PortParams portParams = new PortParams();
+    private static Vector<VehicleConfig> vehicleConfigs = new Vector<VehicleConfig>();
 
     private static HashSet<Integer> monitorMessageIds = new HashSet<Integer>();
     private static boolean monitorMessage = false;
@@ -121,8 +137,17 @@ public class Simulator implements Runnable {
     private Visualizer3D visualizer;
     private AbstractMulticopter vehicle;
     private CameraGimbal2D gimbal;
-    private MAVLinkHILSystem hilSystem;
-    private MAVLinkPort autopilotMavLinkPort;
+
+    /**
+     * A port and a connection with MAVLink HIL to a vehicle
+     */
+    private static class AutopilotConnection {
+        public MAVLinkPort port;
+        public MAVLinkHILSystem hilSystem;
+        public MAVLinkConnection connHIL;
+    }
+
+    private Vector<AutopilotConnection> autopilotConnections = new Vector<AutopilotConnection>();
     private UDPMavLinkPort udpGCMavLinkPort;
     private ScheduledFuture<?> thisHandle;
     private World world;
@@ -191,8 +216,6 @@ public class Simulator implements Runnable {
         }
 
         // Create MAVLink connections
-        MAVLinkConnection connHIL = new MAVLinkConnection(world);
-        world.addObject(connHIL);
         MAVLinkConnection connCommon = new MAVLinkConnection(world);
         // Don't spam ground station with HIL messages
         if (schema != null) {
@@ -204,19 +227,13 @@ public class Simulator implements Runnable {
         }
         world.addObject(connCommon);
 
-        // Create port
-        autopilotMavLinkPort = createPort(portParams, schema);
-
-        // allow HIL and GCS to talk to this port
-        connHIL.addNode(autopilotMavLinkPort);
-        connCommon.addNode(autopilotMavLinkPort);
         // UDP port: connection to ground station
         udpGCMavLinkPort = new UDPMavLinkPort(schema);
         udpGCMavLinkPort.setDebug(DEBUG_MODE);
         if (COMMUNICATE_WITH_QGC) {
             udpGCMavLinkPort.setup(qgcIpAddress, qgcPeerPort);
             udpGCMavLinkPort.setDebug(DEBUG_MODE);
-            if (monitorMessage && portParams.PORT == Port.SERIAL) {
+            if (monitorMessage && vehicleConfigs.firstElement().PORT == Port.SERIAL) {
                 udpGCMavLinkPort.setMonitorMessageID(monitorMessageIds);
             }
             connCommon.addNode(udpGCMavLinkPort);
@@ -242,20 +259,41 @@ public class Simulator implements Runnable {
             simpleEnvironment.setMagField(magField);
         }
 
-        // Create vehicle with sensors
-        if (autopilotType == "aq") {
-            vehicle = buildAQ_leora();
-        } else {
-            vehicle = buildMulticopter();
+        boolean driveSimTime = true;
+        for (VehicleConfig vehicleConfig : vehicleConfigs) {
+
+            // Create vehicle with sensors
+            if (vehicleConfig.autopilotType == "aq") {
+                vehicle = buildAQ_leora(vehicleConfig.vehicle3DModel);
+            } else {
+                vehicle = buildMulticopter(vehicleConfig.vehicle3DModel);
+            }
+
+            vehicle.setPosition(vehicleConfig.initialPosition);
+
+            // Create connector between autopilot and vehicle
+            AutopilotConnection autopilotConnection = new AutopilotConnection();
+            autopilotConnection.port = createPort(vehicleConfig, schema);
+
+            // allow HIL and GCS to talk to this port
+            autopilotConnection.connHIL = new MAVLinkConnection(world);
+            world.addObject(autopilotConnection.connHIL);
+
+            autopilotConnection.connHIL.addNode(autopilotConnection.port);
+            connCommon.addNode(autopilotConnection.port);
+
+            // Create MAVLink HIL system
+            // SysId should be the same as autopilot, ComponentId should be different!
+            autopilotConnection.hilSystem = new MAVLinkHILSystem(schema, autopilotSysId, 51, vehicle, driveSimTime);
+            autopilotConnection.hilSystem.setSimulator(this);
+            //hilSystem.setHeartbeatInterval(0);
+            autopilotConnection.connHIL.addNode(autopilotConnection.hilSystem);
+            world.addObject(vehicle);
+
+            autopilotConnections.add(autopilotConnection);
+            driveSimTime = false; // only the first instance does it
         }
 
-        // Create MAVLink HIL system
-        // SysId should be the same as autopilot, ComponentId should be different!
-        hilSystem = new MAVLinkHILSystem(schema, autopilotSysId, 51, vehicle);
-        hilSystem.setSimulator(this);
-        //hilSystem.setHeartbeatInterval(0);
-        connHIL.addNode(hilSystem);
-        world.addObject(vehicle);
 
         // Put camera on vehicle with gimbal
         if (USE_GIMBAL) {
@@ -268,7 +306,7 @@ public class Simulator implements Runnable {
         world.addObject(new ReportUpdater(world, visualizer));
 
         visualizer.addWorldModels();
-        visualizer.setHilSystem(hilSystem);
+        visualizer.setHilSystem(autopilotConnections.firstElement().hilSystem);
         visualizer.setVehicleViewObject(vehicle);
 
         // set default view and zoom mode
@@ -277,11 +315,13 @@ public class Simulator implements Runnable {
         visualizer.toggleReportPanel(GUI_SHOW_REPORT_PANEL);
 
         // Open ports
-        try {
-            autopilotMavLinkPort.open();
-        } catch (IOException e) {
-            System.out.println("ERROR: Failed to open MAV port: " + e.getLocalizedMessage());
-            shutdown = true;
+        for (AutopilotConnection apConnection : autopilotConnections) {
+            try {
+                apConnection.port.open();
+            } catch (IOException e) {
+                System.out.println("ERROR: Failed to open MAV port: " + e.getLocalizedMessage());
+                shutdown = true;
+            }
         }
 
         if (COMMUNICATE_WITH_QGC) {
@@ -302,13 +342,15 @@ public class Simulator implements Runnable {
                     Thread.sleep(200);
 
                     System.out.println("Shutting down...");
-                    if (hilSystem != null) {
-                        hilSystem.endSim();
+                    for (AutopilotConnection apConnection : autopilotConnections) {
+                        apConnection.hilSystem.endSim();
                     }
 
                     // Close ports
-                    if (autopilotMavLinkPort != null && autopilotMavLinkPort.isOpened()) {
-                        autopilotMavLinkPort.close();
+                    for (AutopilotConnection apConnection : autopilotConnections) {
+                        if (apConnection.port.isOpened()) {
+                            apConnection.port.close();
+                        }
                     }
                     if (udpGCMavLinkPort != null && udpGCMavLinkPort.isOpened()) {
                         udpGCMavLinkPort.close();
@@ -337,7 +379,7 @@ public class Simulator implements Runnable {
 
     }
 
-    private MAVLinkPort createPort(PortParams params, MAVLinkSchema schema) throws IOException {
+    private MAVLinkPort createPort(VehicleConfig params, MAVLinkSchema schema) throws IOException {
         MAVLinkPort mavLinkPort = null;
         if (params.PORT == Port.SERIAL) {
             SerialMAVLinkPort port = new SerialMAVLinkPort(schema);
@@ -369,9 +411,9 @@ public class Simulator implements Runnable {
         paused = !paused;
     }
 
-    private AbstractMulticopter buildMulticopter() {
+    private AbstractMulticopter buildMulticopter(String vehicle3DModel) {
         Vector3d gc = new Vector3d(0.0, 0.0, 0.0);  // gravity center
-        AbstractMulticopter vehicle = new Quadcopter(world, DEFAULT_VEHICLE_MODEL, "x", "default",
+        AbstractMulticopter vehicle = new Quadcopter(world, vehicle3DModel, "x", "default",
                                                      0.33 / 2, 4.0, 0.05, 0.005, gc);
         Matrix3d I = new Matrix3d();
         // Moments of inertia
@@ -395,9 +437,9 @@ public class Simulator implements Runnable {
     }
 
     // 200mm, 250g small quad X "Leora" with AutoQuad style layout (clockwise from front)
-    private AbstractMulticopter buildAQ_leora() {
+    private AbstractMulticopter buildAQ_leora(String vehicle3DModel) {
         Vector3d gc = new Vector3d(0.0, 0.0, 0.0);  // gravity center
-        AbstractMulticopter vehicle = new Quadcopter(world, DEFAULT_VEHICLE_MODEL, "x", "cw_fr", 0.1, 1.35,
+        AbstractMulticopter vehicle = new Quadcopter(world, vehicle3DModel, "x", "cw_fr", 0.1, 1.35,
                                                      0.02, 0.0005, gc);
 
         Matrix3d I = new Matrix3d();
@@ -439,11 +481,6 @@ public class Simulator implements Runnable {
     private static long lastTupdate = 0;
 
     public void run() {
-        long tnow = System.currentTimeMillis();
-        if (tnow - lastTupdate > 5000) {
-            lastTupdate = tnow;
-            System.out.println("SimTime: " + (getSimMillis() / 1000) + "\nSysTime: " + (tnow / 1000));
-        }
 
         if (paused) {
             return;
@@ -451,7 +488,7 @@ public class Simulator implements Runnable {
 
         boolean ioRunOnly = (slowDownCounter % checkFactor != 0);
 
-        if (!hilSystem.gotHilActuatorControls() && !ioRunOnly) {
+        if (!autopilotConnections.firstElement().hilSystem.gotHilActuatorControls() && !ioRunOnly) {
             advanceTime();
         }
 
@@ -543,8 +580,8 @@ public class Simulator implements Runnable {
         return System.currentTimeMillis();
     }
 
+
     public void advanceTime() {
-        // TODO prevent simTime from advancing faster than it should
         simTimeUs += sleepInterval;
     }
 
@@ -562,12 +599,18 @@ public class Simulator implements Runnable {
     public final static String AP_STRING = "-ap <autopilot_type>";
     public final static String RATE_STRING = "-r <Hz>";
     public final static String SPEED_FACTOR_STRING = "-f";
+    public final static String ADD_MAV_STRING = "--";
+    public final static String MAV_3D_MODEL_STRING = "-3d <mav 3d model>";
+    public final static String POS_STRING = "-pos <north meters,east meters>";
+
     public final static String CMD_STRING =
         "java [-Xmx512m] -cp lib/*:out/production/jmavsim.jar me.drton.jmavsim.Simulator";
     public final static String CMD_STRING_JAR = "java [-Xmx512m] -jar jmavsim_run.jar";
     public final static String USAGE_STRING = CMD_STRING_JAR + " [-h] [" +
                                               UDP_STRING + " | " +
                                               SERIAL_STRING + "] [" +
+            MAV_3D_MODEL_STRING + "] [" +
+            POS_STRING + "] [" +
                                               RATE_STRING + "] [" +
                                               SPEED_FACTOR_STRING + "] [" +
                                               AP_STRING + "] [" +
@@ -578,10 +621,14 @@ public class Simulator implements Runnable {
                                               GUI_MAX_STRING + "] [" +
                                               GUI_VIEW_STRING + "] [" +
                                               REP_STRING + "] [" +
-                                              PRINT_INDICATION_STRING + "]";
+                                              PRINT_INDICATION_STRING + "] [" +
+            ADD_MAV_STRING + "]";
 
     public static void main(String[] args)
     throws InterruptedException, IOException {
+
+        VehicleConfig vehicleConfig = new VehicleConfig();
+        boolean mavAdded = false;
 
         int i = 0;
         while (i < args.length) {
@@ -617,7 +664,8 @@ public class Simulator implements Runnable {
                     continue;
                 }
             } else if (arg.equalsIgnoreCase("-udp")) {
-                portParams.PORT = Port.UDP;
+                mavAdded = false;
+                vehicleConfig.PORT = Port.UDP;
                 if (i == args.length) {
                     // only arg is -udp, so use default values.
                     break;
@@ -636,8 +684,8 @@ public class Simulator implements Runnable {
                             System.err.println("Expected: " + UDP_STRING + ", got: " + Arrays.toString(list));
                             return;
                         }
-                        portParams.autopilotIpAddress = list[0];
-                        portParams.autopilotPort = Integer.parseInt(list[1]);
+                        vehicleConfig.autopilotIpAddress = list[0];
+                        vehicleConfig.autopilotPort = Integer.parseInt(list[1]);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + USAGE_STRING + ", got: " + e.toString());
                         return;
@@ -647,7 +695,8 @@ public class Simulator implements Runnable {
                     return;
                 }
             } else if (arg.equalsIgnoreCase("-tcp")) {
-                portParams.PORT = Port.TCP;
+                mavAdded = false;
+                vehicleConfig.PORT = Port.TCP;
                 if (i == args.length) {
                     // only arg is -tcp, so use default values.
                     break;
@@ -666,8 +715,8 @@ public class Simulator implements Runnable {
                             System.err.println("Expected: " + TCP_STRING + ", got: " + Arrays.toString(list));
                             return;
                         }
-                        portParams.autopilotIpAddress = list[0];
-                        portParams.autopilotPort = Integer.parseInt(list[1]);
+                        vehicleConfig.autopilotIpAddress = list[0];
+                        vehicleConfig.autopilotPort = Integer.parseInt(list[1]);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + USAGE_STRING + ", got: " + e.toString());
                         return;
@@ -677,7 +726,8 @@ public class Simulator implements Runnable {
                     return;
                 }
             } else if (arg.equals("-serial")) {
-                portParams.PORT = Port.SERIAL;
+                mavAdded = false;
+                vehicleConfig.PORT = Port.SERIAL;
                 if (i >= args.length) {
                     // only arg is -serial, so use default values
                     break;
@@ -689,8 +739,8 @@ public class Simulator implements Runnable {
                 }
                 if ((i + 1) <= args.length) {
                     try {
-                        portParams.serialPath = nextArg;
-                        portParams.serialBaudRate = Integer.parseInt(args[i++]);
+                        vehicleConfig.serialPath = nextArg;
+                        vehicleConfig.serialBaudRate = Integer.parseInt(args[i++]);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + USAGE_STRING + ", got: " + e.toString());
                         return;
@@ -699,6 +749,35 @@ public class Simulator implements Runnable {
                     System.err.println("-serial needs two arguments. Expected: " + SERIAL_STRING + ", got: " +
                                        Arrays.toString(args));
                     return;
+                }
+            } else if (arg.equals("-3d")) {
+                mavAdded = false;
+                if (i < args.length) {
+                    vehicleConfig.vehicle3DModel = args[i++];
+                } else {
+                    System.err.println("-3d requires the model path as an argument.");
+                    return;
+                }
+            } else if (arg.equalsIgnoreCase("-pos")) {
+                mavAdded = false;
+                if (i == args.length || args[i].startsWith("-")) {
+                    System.err.println("-pos needs arguments. Expected: " + POS_STRING);
+                    return;
+                }
+                if (i < args.length) {
+                    String nextArg = args[i++];
+                    try {
+                        // try to parse coordinates.
+                        String[] list = nextArg.split(",");
+                        if (list.length != 2) {
+                            System.err.println("Expected: " + POS_STRING + ", got: " + Arrays.toString(list));
+                            return;
+                        }
+                        vehicleConfig.initialPosition = new Vector3d(Double.parseDouble(list[0]), Double.parseDouble(list[1]), 0.0);
+                    } catch (NumberFormatException e) {
+                        System.err.println("Expected: " + POS_STRING + ", got: " + nextArg);
+                        return;
+                    }
                 }
             } else if (arg.equals("-qgc")) {
                 COMMUNICATE_WITH_QGC = true;
@@ -731,8 +810,9 @@ public class Simulator implements Runnable {
                     return;
                 }
             } else if (arg.equals("-ap")) {
+                mavAdded = false;
                 if (i < args.length) {
-                    autopilotType = args[i++];
+                    vehicleConfig.autopilotType = args[i++];
                 } else {
                     System.err.println("-ap requires the autopilot name as an argument.");
                     return;
@@ -798,6 +878,15 @@ public class Simulator implements Runnable {
                 USE_GIMBAL = false;
             } else if (arg.equals("-debug")) {
                 DEBUG_MODE = true;
+            } else if (arg.equals("--")) {
+                if (!mavAdded) {
+                    mavAdded = true;
+                    vehicleConfigs.add(vehicleConfig);
+                    vehicleConfig = new VehicleConfig(vehicleConfig);
+
+                    // auto-increment port number for each additional MAV
+                    vehicleConfig.autopilotPort++;
+                }
             } else {
                 System.err.println("Unknown flag: " + arg + ", usage: " + USAGE_STRING);
                 return;
@@ -809,23 +898,34 @@ public class Simulator implements Runnable {
             return;
         }
 
+        if (!mavAdded) {
+            vehicleConfigs.add(vehicleConfig);
+        }
+
         System.out.println("Options parsed, starting Sim.");
 
         SwingUtilities.invokeLater(new Simulator());
     }
 
     public static void handleHelpFlag() {
+        VehicleConfig defaultVehicleConfig = new VehicleConfig();
         String viewType = (GUI_START_VIEW == ViewTypes.VIEW_FPV ? "fpv" : GUI_START_VIEW ==
                            ViewTypes.VIEW_GIMBAL ? "gmbl" : "grnd");
 
         System.out.println("\nUsage: " + USAGE_STRING + "\n");
         System.out.println("Command-line options:\n");
         System.out.println(UDP_STRING);
-        System.out.println("      Open a TCP/IP UDP connection to the MAV (default: " + portParams.autopilotIpAddress +
-                           ":" + portParams.autopilotPort + ").");
+        System.out.println("      Open a TCP/IP UDP connection to the MAV (default: " + defaultVehicleConfig.autopilotIpAddress +
+                           ":" + defaultVehicleConfig.autopilotPort + ").");
         System.out.println(SERIAL_STRING);
         System.out.println("      Open a serial connection to the MAV instead of UDP.");
-        System.out.println("      Default path/baud is: " + portParams.serialPath + " " + portParams.serialBaudRate + "");
+        System.out.println("      Default path/baud is: " + defaultVehicleConfig.serialPath + " " + defaultVehicleConfig.serialBaudRate + "");
+        System.out.println(MAV_3D_MODEL_STRING);
+        System.out.println("      Specify MAV 3D model.");
+        System.out.println("      Default model is: " + DEFAULT_VEHICLE_MODEL);
+        System.out.println(POS_STRING);
+        System.out.println("      Specify initial MAV position relative to origin in meters.");
+        System.out.println("      Default model is: 0,0");
         System.out.println(RATE_STRING);
         System.out.println("      Refresh rate at which jMAVSim runs. This dictates the frequency");
         System.out.println("      of the HIL_SENSOR messages. Default is " + DEFAULT_SIM_RATE + " Hz");
@@ -833,7 +933,7 @@ public class Simulator implements Runnable {
         System.out.println("      Speed factor at which jMAVSim runs. A factor of 2.0 means the system");
         System.out.println("      runs double than real time speed. Default is " + DEFAULT_SPEED_FACTOR);
         System.out.println(AP_STRING);
-        System.out.println("      Specify the MAV type. E.g. 'px4' or 'aq'. Default is: " + autopilotType +
+        System.out.println("      Specify the MAV type. E.g. 'px4' or 'aq'. Default is: " + defaultVehicleConfig.autopilotType +
                            "");
         System.out.println(MAG_STRING);
         System.out.println("      Attempt automatic magnetic field inclination/declination lookup");
@@ -856,6 +956,8 @@ public class Simulator implements Runnable {
         System.out.println(PRINT_INDICATION_STRING);
         System.out.println("      Monitor (echo) all/selected MAVLink messages to the console.");
         System.out.println("      If no MsgIDs are specified, all messages are monitored.");
+        System.out.println(ADD_MAV_STRING);
+        System.out.println("      Start parameters for new MAV.");
         System.out.println("");
         System.out.println("Key commands (in the visualizer window):");
         System.out.println("");

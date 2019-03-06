@@ -44,4 +44,15 @@ public class MAVLinkConnection extends WorldObject {
             node.update(t, paused);
         }
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        for (MAVLinkNode node : nodes) {
+            if (MAVLinkPort.class.isInstance(node)) {
+                sb.append(node.toString());
+            }
+        }
+        return sb.toString();
+    }
 }

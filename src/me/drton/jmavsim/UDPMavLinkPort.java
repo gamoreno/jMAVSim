@@ -151,4 +151,9 @@ public class UDPMavLinkPort extends MAVLinkPort {
             }
         }
     }
+
+    @Override
+    public String toString() {
+        return "UDPMAVLinkPort-" + peerPort;
+    }
 }

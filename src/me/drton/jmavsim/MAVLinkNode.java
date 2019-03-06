@@ -33,4 +33,13 @@ public abstract class MAVLinkNode {
     public abstract void handleMessage(MAVLinkMessage msg);
 
     public abstract void update(long t, boolean paused);
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        for (MAVLinkConnection c : connections) {
+            sb.append(c.toString());
+        }
+        return sb.toString();
+    }
 }

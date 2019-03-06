@@ -159,4 +159,9 @@ public class SerialMAVLinkPort extends MAVLinkPort {
             throw new IOException(e);
         }
     }
+
+    @Override
+    public String toString() {
+        return "SerialMAVLinkPort-" + portName + ":" + baudRate;
+    }
 }

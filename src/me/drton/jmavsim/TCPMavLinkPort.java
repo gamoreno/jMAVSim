@@ -178,4 +178,9 @@ public class TCPMavLinkPort extends MAVLinkPort {
             }
         }
     }
+
+    @Override
+    public String toString() {
+        return "TCPMAVLinkPort-" + inetSocketAddress;
+    }
 }
