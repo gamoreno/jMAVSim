@@ -261,14 +261,13 @@ public class Simulator implements Runnable {
 
         boolean driveSimTime = true;
         for (VehicleConfig vehicleConfig : vehicleConfigs) {
-
             // Create vehicle with sensors
             if (vehicleConfig.autopilotType == "aq") {
                 vehicle = buildAQ_leora(vehicleConfig.vehicle3DModel);
             } else {
                 vehicle = buildMulticopter(vehicleConfig.vehicle3DModel);
             }
-
+	    
             vehicle.setPosition(vehicleConfig.initialPosition);
 
             // Create connector between autopilot and vehicle
@@ -288,8 +287,10 @@ public class Simulator implements Runnable {
             autopilotConnection.hilSystem.setSimulator(this);
             //hilSystem.setHeartbeatInterval(0);
             autopilotConnection.connHIL.addNode(autopilotConnection.hilSystem);
-            world.addObject(vehicle);
 
+	    vehicle.setOrigin(vehicleConfig.initialPosition);
+            world.addObject(vehicle);
+	    
             autopilotConnections.add(autopilotConnection);
             driveSimTime = false; // only the first instance does it
         }
@@ -760,7 +761,7 @@ public class Simulator implements Runnable {
                 }
             } else if (arg.equalsIgnoreCase("-pos")) {
                 mavAdded = false;
-                if (i == args.length || args[i].startsWith("-")) {
+                if (i == args.length || (args[i].startsWith("-") && !Character.isDigit(args[i].charAt(1)))) {
                     System.err.println("-pos needs arguments. Expected: " + POS_STRING);
                     return;
                 }
