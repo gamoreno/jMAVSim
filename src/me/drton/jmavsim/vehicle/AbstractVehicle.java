@@ -132,7 +132,6 @@ public abstract class AbstractVehicle extends DynamicObject implements Reporting
     public void resetObjectParameters() {
         super.resetObjectParameters();
         if (sensors != null) {
-	    // This doesn't actually do anything? (w/ SimpleSensors at least...)
             sensors.setReset(true);
         }
     }

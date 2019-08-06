@@ -1150,12 +1150,12 @@ public class Visualizer3D extends JFrame {
 
                 // full view and object reset
                 case KeyEvent.VK_SPACE :
-		    for (WorldObject object : world.getObjects()) {
-			if (object instanceof KinematicObject) {
-			    resetObjectRAV((KinematicObject)object, true);
-			}
-		    }
-		    
+                    for (WorldObject object : world.getObjects()) {
+                        if (object instanceof KinematicObject) {
+                            resetObjectRAV((KinematicObject)object, true);
+                        }
+                    }
+
                     resetView();
                     break;
 

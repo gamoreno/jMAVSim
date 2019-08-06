@@ -39,7 +39,8 @@ public class MAVLinkHILSystem extends MAVLinkSystem {
      * @param vehicle     vehicle to connect
      * @param driveSimTime  if true, this instance will drive the progress of the simulation time
      */
-    public MAVLinkHILSystem(MAVLinkSchema schema, int sysId, int componentId, AbstractVehicle vehicle, boolean driveSimTime) {
+    public MAVLinkHILSystem(MAVLinkSchema schema, int sysId, int componentId, AbstractVehicle vehicle,
+                            boolean driveSimTime) {
         super(schema, sysId, componentId);
         this.vehicle = vehicle;
         this.driveSimTime = driveSimTime;

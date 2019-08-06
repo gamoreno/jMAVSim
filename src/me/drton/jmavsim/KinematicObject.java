@@ -111,13 +111,13 @@ public abstract class KinematicObject extends WorldObject {
     }
 
     public void setOrigin(Vector3d position) {
-	this.originPosition = new Vector3d(position);
+        this.originPosition = new Vector3d(position);
     }
-    
+
     public Vector3d getOrigin() {
-	return this.originPosition;
+        return this.originPosition;
     }
-    
+
     public void setPosition(Vector3d position) {
         this.position = position;
     }
@@ -155,19 +155,19 @@ public abstract class KinematicObject extends WorldObject {
     }
 
     public void resetObjectParameters() {
-	if(originPosition != null) {
-	    this.position = new Vector3d(originPosition);
-	} else {
-	    position = new Vector3d();
-	}
-	
+        if (originPosition != null) {
+            this.position = new Vector3d(originPosition);
+        } else {
+            position = new Vector3d();
+        }
+
         velocity = new Vector3d();
         acceleration = new Vector3d();
         rotation = new Matrix3d();
         rotationRate = new Vector3d();
 
         rotation.rotX(0);
-	updateBranchGroup();
+        updateBranchGroup();
     }
 
     public static Vector3d utilMatrixToEulers(Matrix3d m) {
