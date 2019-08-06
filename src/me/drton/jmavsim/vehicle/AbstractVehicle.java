@@ -131,7 +131,6 @@ public abstract class AbstractVehicle extends DynamicObject implements Reporting
     @Override
     public void resetObjectParameters() {
         super.resetObjectParameters();
-        position.set(0.0, 0.0, 0.0);
         if (sensors != null) {
             sensors.setReset(true);
         }

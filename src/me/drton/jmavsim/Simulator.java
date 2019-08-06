@@ -261,7 +261,6 @@ public class Simulator implements Runnable {
 
         boolean driveSimTime = true;
         for (VehicleConfig vehicleConfig : vehicleConfigs) {
-
             // Create vehicle with sensors
             if (vehicleConfig.autopilotType == "aq") {
                 vehicle = buildAQ_leora(vehicleConfig.vehicle3DModel);
@@ -284,10 +283,13 @@ public class Simulator implements Runnable {
 
             // Create MAVLink HIL system
             // SysId should be the same as autopilot, ComponentId should be different!
-            autopilotConnection.hilSystem = new MAVLinkHILSystem(schema, autopilotSysId, 51, vehicle, driveSimTime);
+            autopilotConnection.hilSystem = new MAVLinkHILSystem(schema, autopilotSysId, 51, vehicle,
+                                                                 driveSimTime);
             autopilotConnection.hilSystem.setSimulator(this);
             //hilSystem.setHeartbeatInterval(0);
             autopilotConnection.connHIL.addNode(autopilotConnection.hilSystem);
+
+            vehicle.setOrigin(vehicleConfig.initialPosition);
             world.addObject(vehicle);
 
             autopilotConnections.add(autopilotConnection);
@@ -609,8 +611,8 @@ public class Simulator implements Runnable {
     public final static String USAGE_STRING = CMD_STRING_JAR + " [-h] [" +
                                               UDP_STRING + " | " +
                                               SERIAL_STRING + "] [" +
-            MAV_3D_MODEL_STRING + "] [" +
-            POS_STRING + "] [" +
+                                              MAV_3D_MODEL_STRING + "] [" +
+                                              POS_STRING + "] [" +
                                               RATE_STRING + "] [" +
                                               SPEED_FACTOR_STRING + "] [" +
                                               AP_STRING + "] [" +
@@ -622,7 +624,7 @@ public class Simulator implements Runnable {
                                               GUI_VIEW_STRING + "] [" +
                                               REP_STRING + "] [" +
                                               PRINT_INDICATION_STRING + "] [" +
-            ADD_MAV_STRING + "]";
+                                              ADD_MAV_STRING + "]";
 
     public static void main(String[] args)
     throws InterruptedException, IOException {
@@ -760,7 +762,7 @@ public class Simulator implements Runnable {
                 }
             } else if (arg.equalsIgnoreCase("-pos")) {
                 mavAdded = false;
-                if (i == args.length || args[i].startsWith("-")) {
+                if (i == args.length || (args[i].startsWith("-") && !Character.isDigit(args[i].charAt(1)))) {
                     System.err.println("-pos needs arguments. Expected: " + POS_STRING);
                     return;
                 }
@@ -773,7 +775,8 @@ public class Simulator implements Runnable {
                             System.err.println("Expected: " + POS_STRING + ", got: " + Arrays.toString(list));
                             return;
                         }
-                        vehicleConfig.initialPosition = new Vector3d(Double.parseDouble(list[0]), Double.parseDouble(list[1]), 0.0);
+                        vehicleConfig.initialPosition = new Vector3d(Double.parseDouble(list[0]),
+                                                                     Double.parseDouble(list[1]), 0.0);
                     } catch (NumberFormatException e) {
                         System.err.println("Expected: " + POS_STRING + ", got: " + nextArg);
                         return;
@@ -915,11 +918,13 @@ public class Simulator implements Runnable {
         System.out.println("\nUsage: " + USAGE_STRING + "\n");
         System.out.println("Command-line options:\n");
         System.out.println(UDP_STRING);
-        System.out.println("      Open a TCP/IP UDP connection to the MAV (default: " + defaultVehicleConfig.autopilotIpAddress +
+        System.out.println("      Open a TCP/IP UDP connection to the MAV (default: " +
+                           defaultVehicleConfig.autopilotIpAddress +
                            ":" + defaultVehicleConfig.autopilotPort + ").");
         System.out.println(SERIAL_STRING);
         System.out.println("      Open a serial connection to the MAV instead of UDP.");
-        System.out.println("      Default path/baud is: " + defaultVehicleConfig.serialPath + " " + defaultVehicleConfig.serialBaudRate + "");
+        System.out.println("      Default path/baud is: " + defaultVehicleConfig.serialPath + " " +
+                           defaultVehicleConfig.serialBaudRate + "");
         System.out.println(MAV_3D_MODEL_STRING);
         System.out.println("      Specify MAV 3D model.");
         System.out.println("      Default model is: " + DEFAULT_VEHICLE_MODEL);
@@ -933,7 +938,8 @@ public class Simulator implements Runnable {
         System.out.println("      Speed factor at which jMAVSim runs. A factor of 2.0 means the system");
         System.out.println("      runs double than real time speed. Default is " + DEFAULT_SPEED_FACTOR);
         System.out.println(AP_STRING);
-        System.out.println("      Specify the MAV type. E.g. 'px4' or 'aq'. Default is: " + defaultVehicleConfig.autopilotType +
+        System.out.println("      Specify the MAV type. E.g. 'px4' or 'aq'. Default is: " +
+                           defaultVehicleConfig.autopilotType +
                            "");
         System.out.println(MAG_STRING);
         System.out.println("      Attempt automatic magnetic field inclination/declination lookup");
